@@ -8,7 +8,7 @@ import Lenis from "lenis";
 gsap.registerPlugin(ScrollTrigger);
 
 const TOTAL_FRAMES = 120;
-const REQUIRED_FRAMES = 60; // 👈 Waits for 50% of frames (60 frames) for butter smooth scroll!
+const REQUIRED_FRAMES = 60; // Wait 50% for smooth scrubbing
 
 export default function Hero() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,6 +20,8 @@ export default function Hero() {
   const textGridRef = useRef<HTMLDivElement>(null);
   const textSolarRef = useRef<HTMLDivElement>(null);
   const magicPromptRef = useRef<HTMLDivElement>(null);
+  const exitBadgeRef = useRef<HTMLDivElement>(null); // End-cap badge ref
+  const darkOverlayRef = useRef<HTMLDivElement>(null); // Dark exit fade overlay
 
   // HUD Refs
   const hud1Ref = useRef<HTMLSpanElement>(null);
@@ -35,18 +37,15 @@ export default function Hero() {
     return `/frames/ezgif-frame-${frameNumber}.jpg`;
   };
 
-  // 1. SMART PRELOADER: Loads 50% (60 frames) before opening, then finishes rest in background
+  // 1. Smart Preloader
   useEffect(() => {
     let loadedCount = 0;
 
     const handleImageLoad = () => {
       loadedCount++;
-      
-      // Calculate progress relative to the required 60 frames threshold
       const progress = Math.min(100, Math.round((loadedCount / REQUIRED_FRAMES) * 100));
       setLoadingProgress(progress);
 
-      // Trigger reveal exact at 60 frames
       if (loadedCount === REQUIRED_FRAMES) {
         setIsLoaded(true);
       }
@@ -59,18 +58,15 @@ export default function Hero() {
         imagesRef.current[i] = img;
         handleImageLoad();
       };
-      img.onerror = () => {
-        handleImageLoad(); // Fallback so preloader never hangs
-      };
+      img.onerror = () => handleImageLoad();
     }
   }, []);
 
-  // 2. High Performance Canvas Draw
+  // 2. High DPI HD Canvas Draw (Fixes blurriness on mobile/retina)
   const renderFrame = (index: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    // Fallback to nearest loaded image if targeted frame is still downloading
     let img = imagesRef.current[index];
     if (!img) {
       for (let fallback = index; fallback >= 0; fallback--) {
@@ -85,13 +81,26 @@ export default function Hero() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const hRatio = canvas.width / img.width;
-    const vRatio = canvas.height / img.height;
-    const ratio = Math.max(hRatio, vRatio);
-    const centerShift_x = (canvas.width - img.width * ratio) / 2;
-    const centerShift_y = (canvas.height - img.height * ratio) / 2;
+    // HD Pixel Ratio Scaling
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const canvasWidth = canvas.clientWidth;
+    const canvasHeight = canvas.clientHeight;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas.width !== canvasWidth * dpr || canvas.height !== canvasHeight * dpr) {
+      canvas.width = canvasWidth * dpr;
+      canvas.height = canvasHeight * dpr;
+    }
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const hRatio = canvasWidth / img.width;
+    const vRatio = canvasHeight / img.height;
+    const ratio = Math.max(hRatio, vRatio);
+    const centerShift_x = (canvasWidth - img.width * ratio) / 2;
+    const centerShift_y = (canvasHeight - img.height * ratio) / 2;
+
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     ctx.drawImage(
       img,
       0,
@@ -103,13 +112,12 @@ export default function Hero() {
       img.width * ratio,
       img.height * ratio
     );
+    ctx.restore();
   };
 
   useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
-        canvasRef.current.width = window.innerWidth;
-        canvasRef.current.height = window.innerHeight;
         renderFrame(0);
       }
     };
@@ -118,7 +126,7 @@ export default function Hero() {
     return () => window.removeEventListener("resize", handleResize);
   }, [isLoaded]);
 
-  // 3. Master Scroll Engine
+  // 3. Master Scroll Engine & Crisp Exit
   useEffect(() => {
     if (!isLoaded) return;
 
@@ -141,27 +149,24 @@ export default function Hero() {
       onUpdate: (self) => {
         const progress = self.progress;
 
-        const videoProgress = Math.min(1, progress / 0.85);
+        const videoProgress = Math.min(1, progress / 0.82); // Finished video slightly earlier before exit
         const targetFrame = Math.min(TOTAL_FRAMES - 1, Math.floor(videoProgress * TOTAL_FRAMES));
         renderFrame(targetFrame);
 
-        // Intro Text & Magic Box Fade Out
+        // Stage 1: Intro Text (0% to 15%)
         if (progress < 0.15) {
           const fadeVal = String(1 - (progress / 0.15));
-          
           if (textIntroRef.current) {
             textIntroRef.current.style.opacity = fadeVal;
             textIntroRef.current.style.transform = `translateY(-48px) scale(${1 - progress})`;
           }
-          if (magicPromptRef.current) {
-            magicPromptRef.current.style.opacity = fadeVal;
-          }
+          if (magicPromptRef.current) magicPromptRef.current.style.opacity = fadeVal;
 
           if (hud1Ref.current) hud1Ref.current.style.color = "#fbbf24";
           if (hud2Ref.current) hud2Ref.current.style.color = "#52525b";
         } 
         
-        // Power Grid Text
+        // Stage 2: Power Grid Text (30% to 55%)
         else if (progress >= 0.30 && progress < 0.55) {
           let opacity = 1;
           if (progress < 0.35) opacity = (progress - 0.30) / 0.05;
@@ -177,11 +182,11 @@ export default function Hero() {
           if (hud3Ref.current) hud3Ref.current.style.color = "#52525b";
         } 
         
-        // Solar / Renewable Text
-        else if (progress >= 0.60 && progress < 0.85) {
+        // Stage 3: Solar Text (60% to 80%)
+        else if (progress >= 0.60 && progress < 0.80) {
           let opacity = 1;
           if (progress < 0.65) opacity = (progress - 0.60) / 0.05;
-          if (progress > 0.80) opacity = 1 - ((progress - 0.80) / 0.05);
+          if (progress > 0.76) opacity = 1 - ((progress - 0.76) / 0.04);
           
           if (textSolarRef.current) {
             textSolarRef.current.style.opacity = String(opacity);
@@ -199,17 +204,36 @@ export default function Hero() {
           if (magicPromptRef.current) magicPromptRef.current.style.opacity = "0";
         }
 
-        // Exit Scale Transition
-        if (progress > 0.85 && canvasWrapperRef.current) {
-          const exitProgress = (progress - 0.85) / 0.15;
-          const scale = 1 - (0.1 * exitProgress);
-          const radius = 32 * exitProgress;
+        // 🔥 CRISP EXIT TRANSITION (82% to 100%)
+        if (progress > 0.82) {
+          const exitProgress = (progress - 0.82) / 0.18; // 0 to 1
           
-          canvasWrapperRef.current.style.transform = `scale(${scale})`;
-          canvasWrapperRef.current.style.borderRadius = `${radius}px`;
-        } else if (canvasWrapperRef.current) {
-          canvasWrapperRef.current.style.transform = `scale(1)`;
-          canvasWrapperRef.current.style.borderRadius = `0px`;
+          // 1. Smooth Scale & Radius
+          const scale = 1 - (0.08 * exitProgress);
+          const radius = 24 * exitProgress;
+          
+          if (canvasWrapperRef.current) {
+            canvasWrapperRef.current.style.transform = `scale(${scale})`;
+            canvasWrapperRef.current.style.borderRadius = `${radius}px`;
+          }
+
+          // 2. Dark Overlay Fade (Prevents blurriness by smoothly darkening frame)
+          if (darkOverlayRef.current) {
+            darkOverlayRef.current.style.opacity = String(exitProgress * 0.65);
+          }
+
+          // 3. End Badge Reveal
+          if (exitBadgeRef.current) {
+            exitBadgeRef.current.style.opacity = String(exitProgress);
+            exitBadgeRef.current.style.transform = `scale(${0.9 + exitProgress * 0.1})`;
+          }
+        } else {
+          if (canvasWrapperRef.current) {
+            canvasWrapperRef.current.style.transform = `scale(1)`;
+            canvasWrapperRef.current.style.borderRadius = `0px`;
+          }
+          if (darkOverlayRef.current) darkOverlayRef.current.style.opacity = "0";
+          if (exitBadgeRef.current) exitBadgeRef.current.style.opacity = "0";
         }
       },
     });
@@ -224,7 +248,7 @@ export default function Hero() {
   return (
     <div ref={containerRef} className="relative h-screen w-full bg-[#080808] overflow-hidden">
       
-      {/* Sleek High-Tech Loader */}
+      {/* Preloader */}
       {!isLoaded && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#080808] text-white">
           <span className="text-xs font-mono text-amber-400 tracking-[0.3em] uppercase mb-4">
@@ -242,14 +266,22 @@ export default function Hero() {
       {/* Canvas Wrapper */}
       <div 
         ref={canvasWrapperRef} 
-        className="w-full h-full relative overflow-hidden origin-center will-change-transform"
+        className="w-full h-full relative overflow-hidden origin-center will-change-transform shadow-2xl"
       >
         <canvas ref={canvasRef} className="w-full h-full object-cover block" />
         
-        {/* Dark Vignette Overlay */}
+        {/* Dark Vignette Base Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#080808]/80 via-transparent to-[#080808]/40 pointer-events-none" />
 
+        {/* Dynamic Dark Exit Overlay (Darkens on exit to prevent blur) */}
+        <div 
+          ref={darkOverlayRef}
+          className="absolute inset-0 bg-black opacity-0 pointer-events-none transition-opacity duration-75" 
+        />
+
         {/* ================= TEXT REVEALS ================= */}
+        
+        {/* 1. Intro Text */}
         <div ref={textIntroRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none -translate-y-0 transition-transform duration-100 ease-out">
           <div className="relative flex flex-col items-center justify-center text-center px-8 py-6 border border-amber-400/50 bg-[#080808]/80 backdrop-blur-md rounded-xs max-w-xs sm:max-w-md shadow-[0_0_50px_rgba(0,0,0,0.9)]">
             <span className="text-[11px] sm:text-xs font-mono text-amber-400 font-semibold tracking-[0.35em] uppercase mb-2 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
@@ -274,7 +306,7 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* Power Grid Text */}
+        {/* 2. Power Grid Text */}
         <div ref={textGridRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none will-change-transform opacity-0">
           <div className="relative flex flex-col items-center text-center">
             <span className="text-xs font-mono text-zinc-300 tracking-[0.4em] uppercase mb-4">
@@ -287,7 +319,7 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* Solar / Renewables Text */}
+        {/* 3. Solar / Renewables Text */}
         <div ref={textSolarRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none will-change-transform opacity-0">
           <div className="relative flex flex-col items-center text-center">
             <span className="text-xs font-mono text-zinc-300 tracking-[0.4em] uppercase mb-4">
@@ -297,6 +329,21 @@ export default function Hero() {
               RENEWABLE <br />
               <span className="italic text-amber-400">INTEGRATION.</span>
             </h2>
+          </div>
+        </div>
+
+        {/* 🏁 4. EXIT BADGE (Appears Crisp on End Transition) */}
+        <div
+          ref={exitBadgeRef}
+          className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none opacity-0 transition-transform duration-100 ease-out"
+        >
+          <div className="flex flex-col items-center text-center px-8 py-5 border border-amber-400/60 bg-[#080808]/90 backdrop-blur-xl rounded-sm shadow-2xl">
+            <span className="text-[10px] font-mono text-amber-400 tracking-[0.35em] uppercase mb-1">
+              [ SYSTEM TRANSMISSION COMPLETE ]
+            </span>
+            <span className="text-sm md:text-base font-serif text-white uppercase tracking-widest font-light">
+              EXPLORE ENGINEERING ARCHIVE ↓
+            </span>
           </div>
         </div>
 
