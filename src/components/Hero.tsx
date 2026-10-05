@@ -8,6 +8,7 @@ import Lenis from "lenis";
 gsap.registerPlugin(ScrollTrigger);
 
 const TOTAL_FRAMES = 120;
+const INITIAL_LOAD_FRAMES = 12; // 👈 FAST LOAD: Wait for only 12 frames to show screen in 0.5s!
 
 export default function Hero() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -18,15 +19,14 @@ export default function Hero() {
   const textIntroRef = useRef<HTMLDivElement>(null);
   const textGridRef = useRef<HTMLDivElement>(null);
   const textSolarRef = useRef<HTMLDivElement>(null);
-  const magicPromptRef = useRef<HTMLDivElement>(null); // Ref lal magic prompt box
+  const magicPromptRef = useRef<HTMLDivElement>(null);
 
   // HUD Refs
   const hud1Ref = useRef<HTMLSpanElement>(null);
   const hud2Ref = useRef<HTMLSpanElement>(null);
   const hud3Ref = useRef<HTMLSpanElement>(null);
 
-  const [images, setImages] = useState<HTMLImageElement[]>([]);
-  const [loadingProgress, setLoadingProgress] = useState(0);
+  const imagesRef = useRef<HTMLImageElement[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const currentFrameUrl = (index: number) => {
@@ -34,34 +34,61 @@ export default function Hero() {
     return `/frames/ezgif-frame-${frameNumber}.jpg`;
   };
 
-  // 1. Preload Frame Images
+  // 1. FAST PRELOADER: Load initial batch fast, then stream the rest in background
   useEffect(() => {
-    let loadedCount = 0;
-    const loadedImages: HTMLImageElement[] = [];
+    let initialCount = 0;
+    const loadedImages: HTMLImageElement[] = new Array(TOTAL_FRAMES);
 
-    for (let i = 0; i < TOTAL_FRAMES; i++) {
+    // Helper to load single image
+    const loadImage = (index: number, onInitialBatchDone?: () => void) => {
       const img = new Image();
-      img.src = currentFrameUrl(i);
+      img.src = currentFrameUrl(index);
       img.onload = () => {
-        loadedCount++;
-        setLoadingProgress(Math.round((loadedCount / TOTAL_FRAMES) * 100));
-        if (loadedCount === TOTAL_FRAMES) {
-          setIsLoaded(true);
+        loadedImages[index] = img;
+        imagesRef.current[index] = img;
+
+        if (index < INITIAL_LOAD_FRAMES) {
+          initialCount++;
+          if (initialCount === INITIAL_LOAD_FRAMES && onInitialBatchDone) {
+            onInitialBatchDone();
+          }
         }
       };
-      loadedImages.push(img);
+    };
+
+    // A. Priority Load First 12 Frames
+    for (let i = 0; i < INITIAL_LOAD_FRAMES; i++) {
+      loadImage(i, () => {
+        setIsLoaded(true); // Open site instantly!
+        
+        // B. Stream remaining frames silently in background
+        for (let j = INITIAL_LOAD_FRAMES; j < TOTAL_FRAMES; j++) {
+          loadImage(j);
+        }
+      });
     }
-    setImages(loadedImages);
   }, []);
 
   // 2. High Performance Canvas Draw
   const renderFrame = (index: number) => {
     const canvas = canvasRef.current;
-    if (!canvas || !images[index]) return;
+    if (!canvas) return;
+    
+    // Fallback to nearest loaded image if targeted frame is still downloading
+    let img = imagesRef.current[index];
+    if (!img) {
+      for (let fallback = index; fallback >= 0; fallback--) {
+        if (imagesRef.current[fallback]) {
+          img = imagesRef.current[fallback];
+          break;
+        }
+      }
+    }
+    if (!img) return;
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const img = images[index];
     const hRatio = canvas.width / img.width;
     const vRatio = canvas.height / img.height;
     const ratio = Math.max(hRatio, vRatio);
@@ -118,12 +145,11 @@ export default function Hero() {
       onUpdate: (self) => {
         const progress = self.progress;
 
-        // Frame Calculation (0% to 85% of scroll controls the video)
         const videoProgress = Math.min(1, progress / 0.85);
         const targetFrame = Math.min(TOTAL_FRAMES - 1, Math.floor(videoProgress * TOTAL_FRAMES));
         renderFrame(targetFrame);
 
-        // Intro Text & Magic Box Fade Out (First 15% of scroll)
+        // Intro Text & Magic Box Fade Out
         if (progress < 0.15) {
           const fadeVal = String(1 - (progress / 0.15));
           
@@ -131,8 +157,6 @@ export default function Hero() {
             textIntroRef.current.style.opacity = fadeVal;
             textIntroRef.current.style.transform = `translateY(-48px) scale(${1 - progress})`;
           }
-          
-          // Fade out the magic trick badge
           if (magicPromptRef.current) {
             magicPromptRef.current.style.opacity = fadeVal;
           }
@@ -179,7 +203,7 @@ export default function Hero() {
           if (magicPromptRef.current) magicPromptRef.current.style.opacity = "0";
         }
 
-        // Exit Scale Transition (85% to 100%)
+        // Exit Scale Transition
         if (progress > 0.85 && canvasWrapperRef.current) {
           const exitProgress = (progress - 0.85) / 0.15;
           const scale = 1 - (0.1 * exitProgress);
@@ -204,17 +228,14 @@ export default function Hero() {
   return (
     <div ref={containerRef} className="relative h-screen w-full bg-[#080808] overflow-hidden">
       
-      {/* Loading Screen */}
+      {/* Super Fast Loading Screen (< 0.8s) */}
       {!isLoaded && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#080808] text-white">
-          <span className="text-xs font-mono text-amber-400 tracking-[0.3em] uppercase mb-4">
-            INITIALIZING HARDWARE CORE
+          <span className="text-xs font-mono text-amber-400 tracking-[0.3em] uppercase mb-4 animate-pulse">
+            BOOTING HARDWARE CORE
           </span>
-          <div className="w-56 h-1 bg-zinc-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-amber-400 transition-all duration-150"
-              style={{ width: `${loadingProgress}%` }}
-            />
+          <div className="w-48 h-1 bg-zinc-800 rounded-full overflow-hidden">
+            <div className="h-full bg-amber-400 animate-[shimmer_1s_infinite]" />
           </div>
         </div>
       )}
@@ -230,9 +251,7 @@ export default function Hero() {
         <div className="absolute inset-0 bg-gradient-to-t from-[#080808]/80 via-transparent to-[#080808]/40 pointer-events-none" />
 
         {/* ================= TEXT REVEALS ================= */}
-        
-        {/* 1. Intro Text */}
-        <div ref={textIntroRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none -translate-y-0 transition-transform duration-100 ease-out">
+        <div ref={textIntroRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none -translate-y-12 transition-transform duration-100 ease-out">
           <div className="relative flex flex-col items-center justify-center text-center px-8 py-6 border border-amber-400/50 bg-[#080808]/80 backdrop-blur-md rounded-xs max-w-xs sm:max-w-md shadow-[0_0_50px_rgba(0,0,0,0.9)]">
             <span className="text-[11px] sm:text-xs font-mono text-amber-400 font-semibold tracking-[0.35em] uppercase mb-2 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
               [ ELECTRICAL ENG. ]
@@ -243,7 +262,7 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* 🪄 2. MAGIC TRICK PROMPT BOX (Bottom Center) */}
+        {/* MAGIC TRICK PROMPT BOX */}
         <div
           ref={magicPromptRef}
           className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-opacity duration-300 ease-out"
@@ -256,7 +275,7 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* 3. Power Grid Text */}
+        {/* Power Grid Text */}
         <div ref={textGridRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none will-change-transform opacity-0">
           <div className="relative flex flex-col items-center text-center">
             <span className="text-xs font-mono text-zinc-300 tracking-[0.4em] uppercase mb-4">
@@ -269,7 +288,7 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* 4. Solar / Renewables Text */}
+        {/* Solar / Renewables Text */}
         <div ref={textSolarRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none will-change-transform opacity-0">
           <div className="relative flex flex-col items-center text-center">
             <span className="text-xs font-mono text-zinc-300 tracking-[0.4em] uppercase mb-4">
@@ -282,7 +301,7 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* ================= ENGINEERING HUD ================= */}
+        {/* HUD */}
         <div className="absolute right-8 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-6 hidden md:flex pointer-events-none">
           <span ref={hud1Ref} className="text-[10px] font-mono font-bold tracking-widest text-amber-400 transition-colors duration-300">01</span>
           <div className="w-[1px] h-12 bg-white/10 relative">
