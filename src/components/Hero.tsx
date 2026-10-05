@@ -250,7 +250,7 @@ export default function Hero() {
         <div className="absolute inset-0 bg-gradient-to-t from-[#080808]/80 via-transparent to-[#080808]/40 pointer-events-none" />
 
         {/* ================= TEXT REVEALS ================= */}
-        <div ref={textIntroRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none -translate-y-12 transition-transform duration-100 ease-out">
+        <div ref={textIntroRef} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none -translate-y-0 transition-transform duration-100 ease-out">
           <div className="relative flex flex-col items-center justify-center text-center px-8 py-6 border border-amber-400/50 bg-[#080808]/80 backdrop-blur-md rounded-xs max-w-xs sm:max-w-md shadow-[0_0_50px_rgba(0,0,0,0.9)]">
             <span className="text-[11px] sm:text-xs font-mono text-amber-400 font-semibold tracking-[0.35em] uppercase mb-2 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
               [ ELECTRICAL ENG. ]
