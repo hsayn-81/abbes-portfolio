@@ -8,7 +8,7 @@ import Lenis from "lenis";
 gsap.registerPlugin(ScrollTrigger);
 
 const TOTAL_FRAMES = 120;
-const INITIAL_LOAD_FRAMES = 12; // 👈 FAST LOAD: Wait for only 12 frames to show screen in 0.5s!
+const REQUIRED_FRAMES = 60; // 👈 Waits for 50% of frames (60 frames) for butter smooth scroll!
 
 export default function Hero() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,6 +27,7 @@ export default function Hero() {
   const hud3Ref = useRef<HTMLSpanElement>(null);
 
   const imagesRef = useRef<HTMLImageElement[]>([]);
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const currentFrameUrl = (index: number) => {
@@ -34,38 +35,33 @@ export default function Hero() {
     return `/frames/ezgif-frame-${frameNumber}.jpg`;
   };
 
-  // 1. FAST PRELOADER: Load initial batch fast, then stream the rest in background
+  // 1. SMART PRELOADER: Loads 50% (60 frames) before opening, then finishes rest in background
   useEffect(() => {
-    let initialCount = 0;
-    const loadedImages: HTMLImageElement[] = new Array(TOTAL_FRAMES);
+    let loadedCount = 0;
 
-    // Helper to load single image
-    const loadImage = (index: number, onInitialBatchDone?: () => void) => {
-      const img = new Image();
-      img.src = currentFrameUrl(index);
-      img.onload = () => {
-        loadedImages[index] = img;
-        imagesRef.current[index] = img;
+    const handleImageLoad = () => {
+      loadedCount++;
+      
+      // Calculate progress relative to the required 60 frames threshold
+      const progress = Math.min(100, Math.round((loadedCount / REQUIRED_FRAMES) * 100));
+      setLoadingProgress(progress);
 
-        if (index < INITIAL_LOAD_FRAMES) {
-          initialCount++;
-          if (initialCount === INITIAL_LOAD_FRAMES && onInitialBatchDone) {
-            onInitialBatchDone();
-          }
-        }
-      };
+      // Trigger reveal exact at 60 frames
+      if (loadedCount === REQUIRED_FRAMES) {
+        setIsLoaded(true);
+      }
     };
 
-    // A. Priority Load First 12 Frames
-    for (let i = 0; i < INITIAL_LOAD_FRAMES; i++) {
-      loadImage(i, () => {
-        setIsLoaded(true); // Open site instantly!
-        
-        // B. Stream remaining frames silently in background
-        for (let j = INITIAL_LOAD_FRAMES; j < TOTAL_FRAMES; j++) {
-          loadImage(j);
-        }
-      });
+    for (let i = 0; i < TOTAL_FRAMES; i++) {
+      const img = new Image();
+      img.src = currentFrameUrl(i);
+      img.onload = () => {
+        imagesRef.current[i] = img;
+        handleImageLoad();
+      };
+      img.onerror = () => {
+        handleImageLoad(); // Fallback so preloader never hangs
+      };
     }
   }, []);
 
@@ -228,14 +224,17 @@ export default function Hero() {
   return (
     <div ref={containerRef} className="relative h-screen w-full bg-[#080808] overflow-hidden">
       
-      {/* Super Fast Loading Screen (< 0.8s) */}
+      {/* Sleek High-Tech Loader */}
       {!isLoaded && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#080808] text-white">
-          <span className="text-xs font-mono text-amber-400 tracking-[0.3em] uppercase mb-4 animate-pulse">
-            BOOTING HARDWARE CORE
+          <span className="text-xs font-mono text-amber-400 tracking-[0.3em] uppercase mb-4">
+            INITIALIZING HARDWARE CORE // {loadingProgress}%
           </span>
-          <div className="w-48 h-1 bg-zinc-800 rounded-full overflow-hidden">
-            <div className="h-full bg-amber-400 animate-[shimmer_1s_infinite]" />
+          <div className="w-56 h-1 bg-zinc-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-amber-400 transition-all duration-150 ease-out" 
+              style={{ width: `${loadingProgress}%` }}
+            />
           </div>
         </div>
       )}
